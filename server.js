@@ -1,9 +1,11 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import cors from "cors";
+import cors from 'cors';
 import paperRoutes from './routes/papers.js';
 import projectsRoutes from './routes/projects.js';
+import feedbackRoutes from './routes/feedback.js';
+import userRoutes from './routes/users.js';
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ mongoose
 
 app.use('/api/papers', paperRoutes);
 app.use('/api/projects', projectsRoutes);
+app.use('/api/feedback', feedbackRoutes); // Use feedback routes
+app.use('/api/users', userRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
