@@ -121,24 +121,23 @@
 
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
+
 // Register a new user
 export const register = async (req, res) => {
   try {
-    const { firebaseId, name, email, password } = req.body;
+    const { firebaseId, name, email } = req.body;
 
     // Check if user already exists in the backend
     const existingUser = await User.findOne({ firebaseId });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists' });
     }
-    const hashedPassword = await bcrypt.hash(password, 10);
+
     // Create a new user in the backend
     const newUser = new User({
       firebaseId,
       name,
       email,
-      password: hashedPassword
     });
 
     await newUser.save();
