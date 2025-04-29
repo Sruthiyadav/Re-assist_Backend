@@ -5,6 +5,7 @@ const paperSchema = new mongoose.Schema({
   title: { type: String, required: true },
   url: { type: String }, // if URL upload
   filePath: { type: String }, // if file uploaded to S3
+  firebaseId: { type: String, required: true },
   uploadedAt: { type: Date, default: Date.now },
 });
 
