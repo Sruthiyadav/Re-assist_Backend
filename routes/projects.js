@@ -1,8 +1,17 @@
-
 import express from 'express';
 import Project from '../models/Project.js';
 import Paper from '../models/Paper.js';
 import authMiddleware from '../middleware/authMiddleware.js';
+import AWS from 'aws-sdk';
+
+// Configure AWS S3
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
+
+const s3 = new AWS.S3();
 
 const router = express.Router();
 
@@ -10,9 +19,8 @@ const router = express.Router();
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const { name } = req.body;
-    const { firebaseId } = req.user; // Extract firebaseId from JWT payload
+    const { firebaseId } = req.user;
 
-    // Validate input
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return res.status(400).json({ message: 'Project name is required and must be a non-empty string' });
     }
@@ -32,13 +40,14 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const { firebaseId } = req.user;
 
-    // Fetch projects and populate the 'papers' field
-    const projects = await Project.find({ firebaseId }).populate('papers');
+    // Fetch all projects for the logged-in user
+    const projects = await Project.find({ firebaseId });
 
-    // Normalize the response to ensure papers are always an array
+    // Normalize the projects data to include papers and bibEntries
     const normalizedProjects = projects.map((project) => ({
       ...project.toObject(),
-      papers: project.papers || [],
+      papers: project.papers || [], // Ensure papers are included
+      bibEntries: project.bibEntries || [], // Include bibEntries
     }));
 
     res.status(200).json({ projects: normalizedProjects });
@@ -54,24 +63,20 @@ router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
     const { projectId } = req.params;
     const { paperId } = req.body;
 
-    // Validate input
     if (!projectId || !paperId) {
       return res.status(400).json({ message: 'Project ID and Paper ID are required' });
     }
 
-    // Find the project by ID
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    // Find the paper by ID
     const paper = await Paper.findById(paperId);
     if (!paper) {
       return res.status(404).json({ message: 'Paper not found' });
     }
 
-    // Check if the paper is already added to the **current project**
     const isPaperAlreadyAdded = project.papers.some(
       (p) => p._id && p._id.toString() === paper._id.toString()
     );
@@ -79,7 +84,6 @@ router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Paper is already added to this project' });
     }
 
-    // Add the paper to the project's papers array
     project.papers.push({
       _id: paper._id,
       title: paper.title || 'Untitled Paper',
@@ -88,14 +92,9 @@ router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
       uploadedAt: paper.uploadedAt || new Date(),
     });
 
-    // Save the updated project
     await project.save();
 
-    // Return success response
-    res.status(200).json({
-      message: 'Paper added to project successfully',
-      project,
-    });
+    res.status(200).json({ message: 'Paper added to project successfully', project });
   } catch (err) {
     console.error('Error adding paper to project:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -108,13 +107,11 @@ router.delete('/:projectId', authMiddleware, async (req, res) => {
     const { projectId } = req.params;
     const { firebaseId } = req.user;
 
-    // Find the project by ID and ensure it belongs to the logged-in user
     const project = await Project.findOne({ _id: projectId, firebaseId });
     if (!project) {
       return res.status(404).json({ message: 'Project not found or unauthorized' });
     }
 
-    // Delete the project
     await Project.findByIdAndDelete(projectId);
 
     res.status(200).json({ message: 'Project deleted successfully' });
@@ -124,42 +121,89 @@ router.delete('/:projectId', authMiddleware, async (req, res) => {
   }
 });
 
-// 📌 DELETE - Delete Paper by ID from Project
 router.delete('/:projectId/papers/:paperId', authMiddleware, async (req, res) => {
   try {
-    const { firebaseId } = req.user; // Extract firebaseId from JWT payload
+    const { firebaseId } = req.user;
     const { projectId, paperId } = req.params;
 
     console.log('Deleting paper:', paperId, 'from project:', projectId, 'for user:', firebaseId);
 
     // Find the project by ID and ensure it belongs to the user
     const project = await Project.findOne({ _id: projectId, firebaseId });
-
     if (!project) {
       return res.status(404).json({ message: 'Project not found or unauthorized' });
     }
 
-    // console.log('Project found:', project);
-
-    // Remove the paper from the papers array
-    const updatedPapers = project.papers.filter((paper) => paper._id.toString() !== paperId);
-
-    if (updatedPapers.length === project.papers.length) {
-      // If no paper was removed, the paperId does not exist in the array
+    // Find the paper to delete
+    const paperToDelete = project.papers.find((paper) => paper._id.toString() === paperId);
+    if (!paperToDelete) {
       return res.status(404).json({ message: 'Paper not found in the project' });
     }
 
-    // Update the project with the modified papers array
+    const fileUrl = paperToDelete.url; // Full URL of the file
+    if (!fileUrl) {
+      console.warn('No file URL found for the paper:', paperId);
+      return res.status(400).json({ message: 'Paper does not have an associated file in S3' });
+    }
+
+    // Extract the object key from the full URL
+    const filePath = new URL(fileUrl).pathname.substring(1); // Remove leading '/'
+    console.log('Extracted file path (object key):', filePath);
+
+    // Delete the file from AWS S3
+    const params = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: filePath, // Use the extracted object key
+    };
+
+    console.log('Attempting to delete file from S3:', params);
+
+    try {
+      await s3.deleteObject(params).promise();
+      console.log('File deleted successfully from S3:', filePath);
+    } catch (s3Error) {
+      console.error('Error deleting file from S3:', s3Error.message);
+      return res.status(500).json({ error: 'Failed to delete file from S3', details: s3Error.message });
+    }
+
+    // Remove the paper from the papers array
+    const updatedPapers = project.papers.filter((paper) => paper._id.toString() !== paperId);
     project.papers = updatedPapers;
     await project.save();
 
     console.log('Paper deleted successfully');
 
-    // Return success response
     return res.status(200).json({ message: 'Paper deleted successfully' });
   } catch (err) {
     console.error('Error deleting paper:', err);
     return res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+
+// 📌 Add .bib entries to a project
+router.put('/:projectId/add-bib', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { bibData } = req.body;
+
+    if (!projectId || !bibData || !Array.isArray(bibData)) {
+      return res.status(400).json({ message: 'Project ID and valid bibData are required' });
+    }
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Save each entry in the bibEntries array
+    project.bibEntries.push(...bibData.map(entry => ({ entry })));
+
+    await project.save();
+    res.status(200).json({ message: '.bib entries added to project successfully', project });
+  } catch (err) {
+    console.error('Error adding .bib entries to project:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
