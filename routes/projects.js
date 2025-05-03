@@ -35,21 +35,16 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// 📌 Fetch all projects for the logged-in user
+// Fetch all projects for the logged-in user
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const { firebaseId } = req.user;
-
-    // Fetch all projects for the logged-in user
     const projects = await Project.find({ firebaseId });
-
-    // Normalize the projects data to include papers and bibEntries
     const normalizedProjects = projects.map((project) => ({
       ...project.toObject(),
       papers: project.papers || [], // Ensure papers are included
-      bibEntries: project.bibEntries || [], // Include bibEntries
+      bibEntries: project.bibEntries || [], // Ensure bibEntries are included
     }));
-
     res.status(200).json({ projects: normalizedProjects });
   } catch (error) {
     console.error('Error fetching projects:', error);
@@ -121,6 +116,7 @@ router.delete('/:projectId', authMiddleware, async (req, res) => {
   }
 });
 
+
 router.delete('/:projectId/papers/:paperId', authMiddleware, async (req, res) => {
   try {
     const { firebaseId } = req.user;
@@ -149,6 +145,12 @@ router.delete('/:projectId/papers/:paperId', authMiddleware, async (req, res) =>
     // Extract the object key from the full URL
     const filePath = new URL(fileUrl).pathname.substring(1); // Remove leading '/'
     console.log('Extracted file path (object key):', filePath);
+
+    // Validate the extracted object key
+    if (!filePath || filePath.trim() === '') {
+      console.error('Invalid object key extracted from file URL:', fileUrl);
+      return res.status(500).json({ error: 'Failed to extract valid object key from file URL' });
+    }
 
     // Delete the file from AWS S3
     const params = {
@@ -180,8 +182,6 @@ router.delete('/:projectId/papers/:paperId', authMiddleware, async (req, res) =>
   }
 });
 
-
-// 📌 Add .bib entries to a project
 router.put('/:projectId/add-bib', authMiddleware, async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -204,6 +204,41 @@ router.put('/:projectId/add-bib', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Error adding .bib entries to project:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// 📌 Delete a .bib entry by ID from a project
+router.delete('/:projectId/bib/:bibId', authMiddleware, async (req, res) => {
+  try {
+    const { firebaseId } = req.user;
+    const { projectId, bibId } = req.params;
+
+    console.log('Deleting .bib entry:', bibId, 'from project:', projectId, 'for user:', firebaseId);
+
+    // Find the project by ID and ensure it belongs to the user
+    const project = await Project.findOne({ _id: projectId, firebaseId });
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found or unauthorized' });
+    }
+
+    // Find the .bib entry to delete
+    const bibEntryToDelete = project.bibEntries.find((bibEntry) => bibEntry._id.toString() === bibId);
+    if (!bibEntryToDelete) {
+      return res.status(404).json({ message: '.bib entry not found in the project' });
+    }
+
+    // Remove the .bib entry from the bibEntries array
+    const updatedBibEntries = project.bibEntries.filter((bibEntry) => bibEntry._id.toString() !== bibId);
+    project.bibEntries = updatedBibEntries;
+
+    // Save the updated project
+    await project.save();
+
+    console.log('.bib entry deleted successfully');
+    return res.status(200).json({ message: '.bib entry deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting .bib entry:', err);
+    return res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 

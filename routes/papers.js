@@ -108,7 +108,7 @@ router.post('/upload', authMiddleware, upload.array('files'), async (req, res) =
     if (files && files.length > 0) {
       const uploadedPapers = [];
       for (const file of files) {
-        const fileName = `${uuidv4()}-${file.originalname}`;
+        const fileName =  `papers/${Date.now()}-${file.originalname}`;
         const params = {
           Bucket: process.env.AWS_BUCKET_NAME,
           Key: fileName,
