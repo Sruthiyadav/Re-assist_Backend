@@ -73,6 +73,14 @@ const projectSchema = new mongoose.Schema({
     ],
     default: [], // Default to an empty array
   },
+  documents: [  // <-- NEW FIELD
+    {
+      _id: mongoose.Schema.Types.ObjectId,
+      title: String,
+      url: String,
+      uploadedAt: Date,
+    },
+  ],
   createdAt: { type: Date, default: Date.now },
 });
 

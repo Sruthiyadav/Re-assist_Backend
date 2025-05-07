@@ -3,18 +3,20 @@ import Feedback from '../models/feedback.js';
 
 const router = express.Router();
 
-// POST endpoint to submit feedback
+// POST endpoint to submit feedback (general or feature)
 router.post('/', async (req, res) => {
-  // Log the incoming request body to check if the data is received
   console.log("Received feedback:", req.body);
 
-  const { type, rating, text } = req.body;
+  const { type, rating, text, featureTitle, featureDescription, featurePriority } = req.body;
 
   try {
     const newFeedback = new Feedback({
       type,
-      rating,
-      text,
+      rating: type !== 'feature' ? rating : undefined,
+      text: type !== 'feature' ? text : undefined,
+      featureTitle: type === 'feature' ? featureTitle : undefined,
+      featureDescription: type === 'feature' ? featureDescription : undefined,
+      featurePriority: type === 'feature' ? featurePriority : undefined,
     });
 
     await newFeedback.save();

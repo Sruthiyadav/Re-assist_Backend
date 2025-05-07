@@ -20,6 +20,7 @@ router.post('/', authMiddleware, async (req, res) => {
   try {
     const { name } = req.body;
     const { firebaseId } = req.user;
+    // console.log("FirebaseId:",firebaseId)
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return res.status(400).json({ message: 'Project name is required and must be a non-empty string' });
@@ -39,11 +40,12 @@ router.post('/', authMiddleware, async (req, res) => {
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const { firebaseId } = req.user;
+    console.log("FirebaseId:",firebaseId)
     const projects = await Project.find({ firebaseId });
     const normalizedProjects = projects.map((project) => ({
       ...project.toObject(),
-      papers: project.papers || [], // Ensure papers are included
-      bibEntries: project.bibEntries || [], // Ensure bibEntries are included
+      // papers: project.papers || [], // Ensure papers are included
+      // bibEntries: project.bibEntries || [], // Ensure bibEntries are included
     }));
     res.status(200).json({ projects: normalizedProjects });
   } catch (error) {
@@ -53,13 +55,94 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // 📌 Add a paper to a project
+// router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
+//   try {
+//     const { projectId } = req.params;
+//     const { paperId } = req.body;
+
+//     if (!projectId || !paperId) {
+//       return res.status(400).json({ message: 'Project ID and Paper ID are required' });
+//     }
+
+//     const project = await Project.findById(projectId);
+//     if (!project) {
+//       return res.status(404).json({ message: 'Project not found' });
+//     }
+
+//     const paper = await Paper.findById(paperId);
+//     if (!paper) {
+//       return res.status(404).json({ message: 'Paper not found' });
+//     }
+
+//     const isPaperAlreadyAdded = project.papers.some(
+//       (p) => p._id && p._id.toString() === paper._id.toString()
+//     );
+//     if (isPaperAlreadyAdded) {
+//       return res.status(400).json({ message: 'Paper is already added to this project' });
+//     }
+
+//     project.papers.push({
+//       _id: paper._id,
+//       title: paper.title || 'Untitled Paper',
+//       url: paper.url || '',
+//       filePath: paper.filePath || '',
+//       uploadedAt: paper.uploadedAt || new Date(),
+//     });
+
+//     await project.save();
+
+//     res.status(200).json({ message: 'Paper added to project successfully', project });
+//   } catch (err) {
+//     console.error('Error adding paper to project:', err);
+//     res.status(500).json({ message: 'Server error', error: err.message });
+//   }
+// });
+
+// PUT /api/projects/:projectId/add-paper
+// router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
+//   try {
+//     const { projectId } = req.params;
+//     const paperData = req.body;
+//     console.log("paper data from chat",paperData)
+//     if (!projectId || !paperData._id) {
+//       return res.status(400).json({ message: 'Missing required fields' });
+//     }
+
+//     const project = await Project.findById(projectId);
+//     if (!project) {
+//       return res.status(404).json({ message: 'Project not found' });
+//     }
+//     const alreadyAdded = project.papers.some(
+//       (p) => p._id.toString() === paperData._id.toString()
+//     );
+//     if (alreadyAdded) {
+//       return res.status(400).json({ message: 'Paper already added' });
+//     }
+
+//     // Add directly from received data
+//     project.papers.push({
+//       _id: paperData._id,
+//       title: paperData.title,
+//       url: paperData.url,
+//       uploadedAt: new Date(),
+//     });
+
+//     await project.save();
+
+//     res.status(200).json({ message: 'Paper added successfully', project });
+//   } catch (err) {
+//     console.error('Error adding paper:', err);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
+
 router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { paperId } = req.body;
+    const { paperId, ...paperData } = req.body;
 
-    if (!projectId || !paperId) {
-      return res.status(400).json({ message: 'Project ID and Paper ID are required' });
+    if (!projectId) {
+      return res.status(400).json({ message: 'Project ID is required' });
     }
 
     const project = await Project.findById(projectId);
@@ -67,16 +150,26 @@ router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    const paper = await Paper.findById(paperId);
-    if (!paper) {
-      return res.status(404).json({ message: 'Paper not found' });
+    let paper;
+
+    if (paperId) {
+      // Case 1: paperId provided, fetch existing paper
+      paper = await Paper.findById(paperId);
+      if (!paper) {
+        return res.status(404).json({ message: 'Paper not found' });
+      }
+    } else if (paperData._id) {
+      // Case 2: full paper object with _id
+      paper = paperData;
+    } else {
+      return res.status(400).json({ message: 'Paper ID or valid paper data is required' });
     }
 
-    const isPaperAlreadyAdded = project.papers.some(
+    const alreadyAdded = project.papers.some(
       (p) => p._id && p._id.toString() === paper._id.toString()
     );
-    if (isPaperAlreadyAdded) {
-      return res.status(400).json({ message: 'Paper is already added to this project' });
+    if (alreadyAdded) {
+      return res.status(400).json({ message: 'Paper already added to this project' });
     }
 
     project.papers.push({
@@ -89,9 +182,47 @@ router.put('/:projectId/add-paper', authMiddleware, async (req, res) => {
 
     await project.save();
 
-    res.status(200).json({ message: 'Paper added to project successfully', project });
+    res.status(200).json({ message: 'Paper added successfully', project });
   } catch (err) {
-    console.error('Error adding paper to project:', err);
+    console.error('Error adding paper:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// 📌 Attach a document to a project
+router.post('/:projectId/attach-document', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { documentId, title, url } = req.body;
+
+    if (!projectId || !documentId || !title || !url) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Check if document is already attached
+    const alreadyAttached = project.documents.some(doc => doc._id && doc._id.toString() === documentId.toString());
+    if (alreadyAttached) {
+      return res.status(400).json({ message: 'Document already attached to this project' });
+    }
+
+    // Push new document into documents array
+    project.documents.push({
+      _id: documentId,
+      title,
+      url,
+      uploadedAt: new Date(),
+    });
+
+    await project.save();
+
+    res.status(200).json({ message: 'Document attached successfully', project });
+  } catch (err) {
+    console.error('Error attaching document:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
