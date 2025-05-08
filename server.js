@@ -42,7 +42,6 @@ import projectsRoutes from './routes/projects.js';
 import feedbackRoutes from './routes/feedback.js';
 import userRoutes from './routes/users.js';
 import profileRoutes from './routes/profiles.js';
-
 dotenv.config();
 
 const app = express();
